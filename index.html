@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+    <meta charset="UTF-8">
+    <title>Assignment Rush</title>
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/png" href="assets/player.png">
+
+</head>
+
+<body>
+
+<div class="game-container">
+
+    <h1>Assignment Rush</h1>
+
+    <p class="subtitle">
+        Collect assignments. Avoid distractions.
+    </p>
+
+    <div class="stats">
+
+        <div>Score: <span id="score">0</span></div>
+
+        <div>Lives: <span id="lives">3</span></div>
+
+        <div>Time: <span id="time">60</span></div>
+
+        <div>Combo: x<span id="comboText">0</span></div>
+
+        <div>Level: <span id="levelText">1</span></div>
+
+        <div>Best: <span id="highScoreText">0</span></div>
+
+    </div>
+
+    <div class="main-layout">
+
+        <div class="game-column">
+
+            <div id="gameArea">
+
+                <div id="particles"></div>
+
+                <div id="player">
+                    <img src="assets/player.png" alt="Player">
+                </div>
+
+                <div id="gameOverScreen">
+
+                    <h2>Game Over</h2>
+
+                    <p>Final Score: <span id="finalScore">0</span></p>
+
+                    <p>Best Score: <span id="bestScoreFinal">0</span></p>
+
+                    <p>Highest Combo: x<span id="highestComboText">0</span></p>
+
+                    <p>Assignments Collected: <span id="assignmentsCollectedText">0</span></p>
+
+                    <p>Distractions Hit: <span id="distractionsHitText">0</span></p>
+
+                    <button id="restartBtn">
+                        Play Again
+                    </button>
+
+                </div>
+
+                <div id="pauseScreen">
+
+                    <h2>Paused</h2>
+
+                    <p>
+                        Press ESC or Resume to continue
+                    </p>
+
+                </div>
+
+            </div>
+
+            <div class="button-row">
+
+                <button id="startBtn">
+                    Start Game
+                </button>
+
+                <button id="pauseBtn" style="display:none;">
+                    Pause
+                </button>
+
+                <button id="muteBtn">
+                    Sound: On
+                </button>
+
+            </div>
+
+        </div>
+
+        <div class="side-panel">
+
+            <div id="instructionBox">
+
+                <h3>How to Play</h3>
+
+                <p>Collect 📘 📝 📄 to gain points.</p>
+
+                <p>Avoid 📱 🎮 😴 or lose lives.</p>
+
+                <p>Build combos by collecting good items consecutively.</p>
+
+                <p>Move with A/D or arrow keys. On mobile, drag your finger across the screen.</p>
+
+            </div>
+
+            <div id="leaderboard">
+
+                <h3>🏆 Top Scores</h3>
+
+                <ol id="leaderboardList">
+                    <li>No scores yet</li>
+                </ol>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+<div class="project-footer">
+
+    <h3>About This Project</h3>
+
+    <p>
+        Assignment Rush is a browser-based productivity game where players collect study items and avoid distractions.
+    </p>
+
+    <div class="tech-stack">
+
+        <span>HTML</span>
+        <span>CSS</span>
+        <span>JavaScript</span>
+
+    </div>
+
+    <p class="creator-text">
+        Created as a portfolio project
+    </p>
+
+</div>
+
+<div class="footer">
+
+    Made by Nik • Assignment Rush • 2026
+
+</div>
+
+
+
+</div>
+
+<script src="script.js"></script>
+
+</body>
+</html>
