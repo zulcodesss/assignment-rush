@@ -1,508 +1,377 @@
-const player = document.getElementById("player");
-const gameArea = document.getElementById("gameArea");
-const instructionBox = document.getElementById("instructionBox");
+const $ = (id) => document.getElementById(id);
 
-const scoreText = document.getElementById("score");
-const livesText = document.getElementById("lives");
-const timeText = document.getElementById("time");
-const comboTextDisplay = document.getElementById("comboText");
-const levelText = document.getElementById("levelText");
-const highScoreText = document.getElementById("highScoreText");
+const player = $("player"), gameArea = $("gameArea");
+const scoreText = $("score"), livesText = $("lives"), timeText = $("time");
+const comboText = $("comboText"), comboBox = $("comboBox");
+const levelText = $("levelText"), highScoreText = $("highScoreText");
+const startBtn = $("startBtn"), pauseBtn = $("pauseBtn");
+const muteBtn = $("muteBtn"), restartBtn = $("restartBtn");
+const gameOverScreen = $("gameOverScreen"), pauseScreen = $("pauseScreen");
+const countdownEl = $("countdown"), flashEl = $("flash");
+const leaderboardList = $("leaderboardList"), particles = $("particles");
 
-const startBtn = document.getElementById("startBtn");
-const pauseBtn = document.getElementById("pauseBtn");
-const muteBtn = document.getElementById("muteBtn");
-const restartBtn = document.getElementById("restartBtn");
+// ---------- Constants ----------
+const MAX_LIVES = 3, ROUND_TIME = 60;
+const PLAYER_W = 55, PLAYER_BOTTOM = 20, PLAYER_SPEED = 450; // px per second
+const OBJ_SIZE = 60;
+const HIT_INSET_PLAYER = 8, HIT_INSET_OBJ = 9; // shrink hitboxes (~15%)
+// speed in px/second, rate in ms between spawns
+const LEVELS = [
+    { speed: 170, rate: 1500 },
+    { speed: 235, rate: 1000 },
+    { speed: 335, rate: 700 }
+];
+const GOOD = ["notebook", "assignment", "document"];
+const BAD = ["phone", "game", "sleep"];
+const MEDALS = ["🥇", "🥈", "🥉"];
 
-const gameOverScreen = document.getElementById("gameOverScreen");
-const pauseScreen = document.getElementById("pauseScreen");
-
-const finalScore = document.getElementById("finalScore");
-const bestScoreFinal = document.getElementById("bestScoreFinal");
-const highestComboText = document.getElementById("highestComboText");
-const assignmentsCollectedText = document.getElementById("assignmentsCollectedText");
-const distractionsHitText = document.getElementById("distractionsHitText");
-
-const leaderboardList = document.getElementById("leaderboardList");
-const particles = document.getElementById("particles");
-
-const collectSound = new Audio("sounds/collect.mp3");
-const damageSound = new Audio("sounds/damage.mp3");
-const gameOverSound = new Audio("sounds/gameover.mp3");
-
-// Mobile browsers block sound until the user touches the screen first.
-// This silently unlocks audio on the very first tap anywhere on the page.
-function unlockAudio() {
-    collectSound.play().catch(function() {});
-    damageSound.play().catch(function() {});
-    gameOverSound.play().catch(function() {});
-
-    collectSound.pause();
-    damageSound.pause();
-    gameOverSound.pause();
-
-    collectSound.currentTime = 0;
-    damageSound.currentTime = 0;
-    gameOverSound.currentTime = 0;
-
-    document.removeEventListener("touchstart", unlockAudio);
-}
-
-document.addEventListener("touchstart", unlockAudio);
-
-let score = 0;
-let lives = 3;
-let time = 60;
-let combo = 0;
-let highestCombo = 0;
-let assignmentsCollected = 0;
-let distractionsHit = 0;
-let level = 1;
-
-let highScore = localStorage.getItem("assignmentRushHighScore") || 0;
-highScoreText.innerHTML = highScore;
-
-let gameStarted = false;
-let gameRunning = false;
-let isPaused = false;
+// ---------- Sound ----------
+const sounds = {
+    collect: new Audio("sounds/collect.mp3"),
+    damage: new Audio("sounds/damage.mp3"),
+    gameover: new Audio("sounds/gameover.mp3")
+};
 let soundOn = true;
 
-let objectSpawner;
-let timer;
+function playSound(name) {
+    if (!soundOn) return;
+    // Clone so overlapping sounds don't cut each other off
+    sounds[name].cloneNode().play().catch(() => {});
+}
 
-let playerX = 320;
-const playerSpeed = 30;
-let fallSpeed = 5;
-let spawnRate = 1500;
+// Mobile browsers block audio until the first user gesture
+function unlockAudio() {
+    Object.values(sounds).forEach((a) => {
+        a.muted = true;
+        a.play().then(() => { a.pause(); a.currentTime = 0; a.muted = false; })
+            .catch(() => { a.muted = false; });
+    });
+    document.removeEventListener("pointerdown", unlockAudio);
+}
+document.addEventListener("pointerdown", unlockAudio);
 
-function movePlayer(direction) {
-    playerX += direction;
+// ---------- State ----------
+let state = "idle"; // idle | countdown | running | paused | over
+let score, lives, timeLeft, combo, highestCombo, collected, distractions;
+let level, spawnTimer, playerX, objects = [], lastFrame = 0;
+let countdownTimeouts = [];
+const keys = { left: false, right: false };
 
-    if (playerX < 0) {
-        playerX = 0;
-    }
+let highScore = Number(localStorage.getItem("assignmentRushHighScore")) || 0;
+highScoreText.textContent = highScore;
 
-    if (playerX > gameArea.clientWidth - 50) {
-        playerX = gameArea.clientWidth - 50;
-    }
-
+function centerPlayer() {
+    playerX = (gameArea.clientWidth - PLAYER_W) / 2;
     player.style.left = playerX + "px";
 }
 
-document.addEventListener("keydown", function(event) {
-    if (event.key === "ArrowLeft" || event.key === "a" || event.key === "A") {
-        movePlayer(-playerSpeed);
-    }
-
-    if (event.key === "ArrowRight" || event.key === "d" || event.key === "D") {
-        movePlayer(playerSpeed);
-    }
-
-    if (event.key === "Escape") {
-        togglePause();
-    }
-});
-
-// --- Mobile touch: drag finger to move player ---
-
-// --- Swipe on the game area ---
-// We record where the finger started (touchStartX)
-// then as the finger moves (touchmove) we work out
-// how far it travelled and move the player to match
-
-let touchStartX = null;
-let lastTouchX = null;
-
-gameArea.addEventListener("touchstart", function(e) {
-    touchStartX = e.touches[0].clientX;
-    lastTouchX = e.touches[0].clientX;
-}, { passive: true });
-
-gameArea.addEventListener("touchmove", function(e) {
-    if (!gameRunning || lastTouchX === null) {
-        return;
-    }
-
-    // Work out how far the finger moved since last frame
-    const currentX = e.touches[0].clientX;
-    const dragAmount = currentX - lastTouchX;
-
-    // Move the player by that same amount
-    movePlayer(dragAmount);
-
-    // Update lastTouchX so next frame calculates from here
-    lastTouchX = currentX;
-}, { passive: true });
-
-gameArea.addEventListener("touchend", function() {
-    touchStartX = null;
-    lastTouchX = null;
-});
-
-function showScorePopup(text, x, y) {
-    const popup = document.createElement("div");
-    popup.classList.add("score-popup");
-    popup.innerHTML = text;
-    popup.style.left = x + "px";
-    popup.style.top = y + "px";
-
-    gameArea.appendChild(popup);
-
-    setTimeout(function() {
-        popup.remove();
-    }, 600);
+function movePlayer(amount) {
+    const max = gameArea.clientWidth - PLAYER_W;
+    playerX = Math.max(0, Math.min(max, playerX + amount));
+    player.style.left = playerX + "px";
 }
 
-function showDamagePopup(text, x, y) {
-    const popup = document.createElement("div");
-    popup.classList.add("damage-popup");
-    popup.innerHTML = text;
-    popup.style.left = x + "px";
-    popup.style.top = y + "px";
-
-    gameArea.appendChild(popup);
-
-    setTimeout(function() {
-        popup.remove();
-    }, 600);
+// ---------- HUD helpers ----------
+function renderLives() {
+    livesText.textContent = "❤️".repeat(Math.max(lives, 0)) + "🖤".repeat(MAX_LIVES - Math.max(lives, 0));
 }
 
+function setCombo(value) {
+    combo = value;
+    comboText.textContent = combo;
+    if (combo > 3) {
+        comboBox.classList.remove("pulse");
+        void comboBox.offsetWidth; // restart animation
+        comboBox.classList.add("pulse");
+    }
+}
+
+function showPopup(text, x, y, cls) {
+    const popup = document.createElement("div");
+    popup.className = cls;
+    popup.textContent = text;
+    popup.style.left = x + "px";
+    popup.style.top = y + "px";
+    gameArea.appendChild(popup);
+    setTimeout(() => popup.remove(), 600);
+}
+
+function damageEffect() {
+    gameArea.classList.remove("hit");
+    void gameArea.offsetWidth;
+    gameArea.classList.add("hit");
+}
+
+// ---------- Leaderboard ----------
 function updateLeaderboard() {
-    let scores = JSON.parse(localStorage.getItem("assignmentRushLeaderboard")) || [];
-
+    const scores = JSON.parse(localStorage.getItem("assignmentRushLeaderboard")) || [];
     leaderboardList.innerHTML = "";
 
     if (scores.length === 0) {
         leaderboardList.innerHTML = "<li>No scores yet</li>";
         return;
     }
-
-    scores.forEach(function(savedScore) {
-        leaderboardList.innerHTML += "<li>" + savedScore + "</li>";
+    scores.forEach((s, i) => {
+        const li = document.createElement("li");
+        li.textContent = (MEDALS[i] || i + 1 + ".") + "  " + s;
+        leaderboardList.appendChild(li);
     });
 }
 
 function saveScore() {
     let scores = JSON.parse(localStorage.getItem("assignmentRushLeaderboard")) || [];
-
     scores.push(score);
-    scores.sort(function(a, b) {
-        return b - a;
-    });
-
-    scores = scores.slice(0, 5);
-
-    localStorage.setItem("assignmentRushLeaderboard", JSON.stringify(scores));
+    scores.sort((a, b) => b - a);
+    localStorage.setItem("assignmentRushLeaderboard", JSON.stringify(scores.slice(0, 5)));
     updateLeaderboard();
 }
 
-function createObject() {
-    const object = document.createElement("div");
+// ---------- Objects ----------
+function spawnObject() {
+    const type = [...GOOD, ...BAD][Math.floor(Math.random() * 6)];
+    const node = document.createElement("div");
+    node.className = "falling-object";
+    node.innerHTML = `<img src="assets/${type}.png" alt="${type}">`;
 
-    const items = [
-        "notebook",
-        "assignment",
-        "document",
-        "phone",
-        "game",
-        "sleep"
-    ];
-
-    const selectedItem = items[Math.floor(Math.random() * items.length)];
-
-    object.dataset.type = selectedItem;
-    object.innerHTML = `<img src="assets/${selectedItem}.png" alt="${selectedItem}">`;
-
-    object.classList.add("falling-object");
-    object.style.position = "absolute";
-
-    let randomX = Math.random() * (gameArea.clientWidth - 60);
-
-    object.style.left = randomX + "px";
-    object.style.top = "0px";
-
-    gameArea.appendChild(object);
-
-    let objectY = 0;
-
-    const goodItems = [
-        "notebook",
-        "assignment",
-        "document"
-    ];
-
-    let fall = setInterval(function() {
-        if (!gameRunning) {
-            return;
-        }
-
-        objectY += fallSpeed;
-        object.style.top = objectY + "px";
-
-        const playerRect = player.getBoundingClientRect();
-        const objectRect = object.getBoundingClientRect();
-
-        if (
-            playerRect.left < objectRect.right &&
-            playerRect.right > objectRect.left &&
-            playerRect.top < objectRect.bottom &&
-            playerRect.bottom > objectRect.top
-        ) {
-            clearInterval(fall);
-
-            if (goodItems.includes(object.dataset.type)) {
-                combo++;
-                assignmentsCollected++;
-
-                if (combo > highestCombo) {
-                    highestCombo = combo;
-                }
-
-                comboTextDisplay.innerHTML = combo;
-
-                let points = 10;
-                let comboText = "";
-
-                if (combo > 3) {
-                    let multiplier = combo - 2;
-                    points = multiplier * 10;
-                    comboText = "x" + multiplier + " COMBO 🔥";
-                }
-
-                score += points;
-                scoreText.innerHTML = score;
-
-                if (soundOn) {
-                    collectSound.currentTime = 0;
-                    collectSound.play();
-                }
-
-                if (comboText !== "") {
-                    showScorePopup(comboText, object.offsetLeft, objectY - 30);
-                }
-
-                showScorePopup("+" + points, object.offsetLeft, objectY);
-            } else {
-                combo = 0;
-                distractionsHit++;
-
-                comboTextDisplay.innerHTML = combo;
-
-                lives--;
-                livesText.innerHTML = lives;
-
-                if (soundOn) {
-                    damageSound.currentTime = 0;
-                    damageSound.play();
-                }
-
-                showDamagePopup("-1 LIFE", object.offsetLeft, objectY);
-            }
-
-            object.remove();
-        }
-
-        if (objectY > gameArea.clientHeight) {
-            clearInterval(fall);
-
-            if (goodItems.includes(object.dataset.type)) {
-                combo = 0;
-                comboTextDisplay.innerHTML = combo;
-
-                showDamagePopup(
-                    "MISSED!",
-                    object.offsetLeft,
-                    gameArea.clientHeight - 80
-                );
-            }
-
-            object.remove();
-        }
-    }, 30);
+    const o = { node, type, x: Math.random() * (gameArea.clientWidth - OBJ_SIZE), y: -OBJ_SIZE };
+    node.style.transform = `translate(${o.x}px, ${o.y}px)`;
+    gameArea.appendChild(node);
+    objects.push(o);
 }
 
-function startSpawner() {
-    objectSpawner = setInterval(function() {
-        if (gameRunning) {
-            createObject();
-        }
-    }, spawnRate);
+function overlaps(o) {
+    const H = gameArea.clientHeight;
+    const px = playerX + HIT_INSET_PLAYER;
+    const py = H - PLAYER_BOTTOM - PLAYER_W + HIT_INSET_PLAYER;
+    const ps = PLAYER_W - HIT_INSET_PLAYER * 2;
+    const ox = o.x + HIT_INSET_OBJ, oy = o.y + HIT_INSET_OBJ;
+    const os = OBJ_SIZE - HIT_INSET_OBJ * 2;
+    return px < ox + os && px + ps > ox && py < oy + os && py + ps > oy;
 }
 
-function endGame() {
-    gameRunning = false;
+function collect(o) {
+    if (GOOD.includes(o.type)) {
+        setCombo(combo + 1);
+        collected++;
+        highestCombo = Math.max(highestCombo, combo);
 
-    clearInterval(timer);
-    clearInterval(objectSpawner);
+        let points = 10;
+        if (combo > 3) {
+            const multiplier = combo - 2;
+            points = multiplier * 10;
+            showPopup("x" + multiplier + " COMBO 🔥", o.x, o.y - 30, "score-popup");
+        }
+        score += points;
+        scoreText.textContent = score;
+        playSound("collect");
+        showPopup("+" + points, o.x, o.y, "score-popup");
+    } else {
+        setCombo(0);
+        distractions++;
+        lives--;
+        renderLives();
+        playSound("damage");
+        damageEffect();
+        showPopup("-1 LIFE", o.x, o.y, "damage-popup");
+    }
+}
 
-    if (score > highScore) {
-        highScore = score;
+function clearObjects() {
+    objects.forEach((o) => o.node.remove());
+    objects = [];
+}
 
-        localStorage.setItem("assignmentRushHighScore", highScore);
-        highScoreText.innerHTML = highScore;
+// ---------- Game loop ----------
+function update(dt) {
+    timeLeft -= dt;
+    const newLevel = timeLeft > 40 ? 1 : timeLeft > 20 ? 2 : 3;
+    if (newLevel !== level) {
+        level = newLevel;
+        levelText.textContent = level;
+    }
+    const { speed, rate } = LEVELS[level - 1];
+
+    // Smooth keyboard movement
+    const dir = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+    if (dir) movePlayer(dir * PLAYER_SPEED * dt);
+
+    spawnTimer += dt * 1000;
+    if (spawnTimer >= rate) {
+        spawnTimer = 0;
+        spawnObject();
     }
 
-    saveScore();
+    const H = gameArea.clientHeight;
+    for (let i = objects.length - 1; i >= 0; i--) {
+        const o = objects[i];
+        o.y += speed * dt;
+        o.node.style.transform = `translate(${o.x}px, ${o.y}px)`;
 
-    finalScore.innerHTML = score;
-    bestScoreFinal.innerHTML = highScore;
-    highestComboText.innerHTML = highestCombo;
-    assignmentsCollectedText.innerHTML = assignmentsCollected;
-    distractionsHitText.innerHTML = distractionsHit;
-
-    gameOverScreen.style.display = "block";
-
-    if (soundOn) {
-        gameOverSound.currentTime = 0;
-        gameOverSound.play();
+        if (overlaps(o)) {
+            collect(o);
+            o.node.remove();
+            objects.splice(i, 1);
+        } else if (o.y > H) {
+            if (GOOD.includes(o.type)) {
+                setCombo(0);
+                showPopup("MISSED!", o.x, H - 80, "damage-popup");
+            }
+            o.node.remove();
+            objects.splice(i, 1);
+        }
     }
+
+    timeText.textContent = Math.max(0, Math.ceil(timeLeft));
+
+    // End immediately when lives hit 0
+    if (lives <= 0 || timeLeft <= 0) endGame();
+}
+
+function loop(now) {
+    const dt = Math.min((now - lastFrame) / 1000, 0.05);
+    lastFrame = now;
+    if (state === "running") update(dt);
+    requestAnimationFrame(loop);
+}
+
+// ---------- Flow ----------
+function resetValues() {
+    score = 0; lives = MAX_LIVES; timeLeft = ROUND_TIME;
+    combo = 0; highestCombo = 0; collected = 0; distractions = 0;
+    level = 1; spawnTimer = 0;
+    keys.left = keys.right = false;
+
+    clearObjects();
+    scoreText.textContent = 0;
+    renderLives();
+    timeText.textContent = ROUND_TIME;
+    comboText.textContent = 0;
+    levelText.textContent = 1;
+    gameOverScreen.style.display = "none";
+    pauseScreen.style.display = "none";
+    pauseBtn.textContent = "Pause";
+    centerPlayer();
 }
 
 function startGame() {
-    gameStarted = true;
-    gameRunning = true;
+    if (state === "countdown" || state === "running" || state === "paused") return;
 
+    resetValues();
+    state = "countdown";
     startBtn.style.display = "none";
     pauseBtn.style.display = "inline-block";
 
-    startSpawner();
-
-    timer = setInterval(function() {
-        if (!gameRunning) {
-            return;
-        }
-
-        time--;
-        timeText.innerHTML = time;
-
-        if (time <= 40) {
-            level = 2;
-            levelText.innerHTML = level;
-            fallSpeed = 7;
-
-            if (time === 40) {
-                clearInterval(objectSpawner);
-                spawnRate = 1000;
-                startSpawner();
-            }
-        }
-
-        if (time <= 20) {
-            level = 3;
-            levelText.innerHTML = level;
-            fallSpeed = 10;
-
-            if (time === 20) {
-                clearInterval(objectSpawner);
-                spawnRate = 700;
-                startSpawner();
-            }
-        }
-
-        if (time <= 0 || lives <= 0) {
-            endGame();
-        }
-    }, 1000);
+    const steps = ["3", "2", "1", "GO!"];
+    steps.forEach((text, i) => {
+        countdownTimeouts.push(setTimeout(() => {
+            countdownEl.textContent = text;
+            countdownEl.style.display = "block";
+            countdownEl.classList.remove("tick");
+            void countdownEl.offsetWidth;
+            countdownEl.classList.add("tick");
+        }, i * 700));
+    });
+    countdownTimeouts.push(setTimeout(() => {
+        countdownEl.style.display = "none";
+        state = "running";
+    }, steps.length * 700));
 }
 
-startBtn.addEventListener("click", function() {
-    if (gameStarted) {
-        return;
+function endGame() {
+    state = "over";
+
+    if (score > highScore) {
+        highScore = score;
+        localStorage.setItem("assignmentRushHighScore", highScore);
+        highScoreText.textContent = highScore;
     }
+    saveScore();
 
-    startGame();
-});
+    $("finalScore").textContent = score;
+    $("bestScoreFinal").textContent = highScore;
+    $("highestComboText").textContent = highestCombo;
+    $("assignmentsCollectedText").textContent = collected;
+    $("distractionsHitText").textContent = distractions;
 
-function resetGame() {
-    // Step 1: Stop everything that's currently running
-    clearInterval(timer);
-    clearInterval(objectSpawner);
-
-    // Step 2: Remove all falling objects still on screen
-    const fallingObjects = gameArea.querySelectorAll(".falling-object");
-    fallingObjects.forEach(function(obj) {
-        obj.remove();
-    });
-
-    // Step 3: Reset all game variables back to starting values
-    score = 0;
-    lives = 3;
-    time = 60;
-    combo = 0;
-    highestCombo = 0;
-    assignmentsCollected = 0;
-    distractionsHit = 0;
-    level = 1;
-    fallSpeed = 5;
-    spawnRate = 1500;
-    gameStarted = false;
-    gameRunning = false;
-    isPaused = false;
-
-    // Step 4: Reset the player position back to center
-    playerX = 320;
-    player.style.left = playerX + "px";
-
-    // Step 5: Update all the display text on screen
-    scoreText.innerHTML = 0;
-    livesText.innerHTML = 3;
-    timeText.innerHTML = 60;
-    comboTextDisplay.innerHTML = 0;
-    levelText.innerHTML = 1;
-
-    // Step 6: Hide game over screen, hide pause screen
-    gameOverScreen.style.display = "none";
-    pauseScreen.style.display = "none";
-
-    // Step 7: Reset the pause button text and show start button again
-    pauseBtn.innerHTML = "Pause";
+    gameOverScreen.style.display = "block";
     pauseBtn.style.display = "none";
     startBtn.style.display = "inline-block";
+    playSound("gameover");
 }
 
-restartBtn.addEventListener("click", function() {
-    resetGame();
-});
-
 function togglePause() {
-    if (!gameStarted || gameOverScreen.style.display === "block") {
-        return;
-    }
-
-    isPaused = !isPaused;
-
-    if (isPaused) {
-        gameRunning = false;
-        pauseBtn.innerHTML = "Resume";
+    if (state === "running") {
+        state = "paused";
+        pauseBtn.textContent = "Resume";
         pauseScreen.style.display = "block";
-    } else {
-        gameRunning = true;
-        pauseBtn.innerHTML = "Pause";
+    } else if (state === "paused") {
+        state = "running";
+        pauseBtn.textContent = "Pause";
         pauseScreen.style.display = "none";
     }
 }
 
-pauseBtn.addEventListener("click", togglePause);
-
-muteBtn.addEventListener("click", function() {
-    soundOn = !soundOn;
-
-    if (soundOn) {
-        muteBtn.innerHTML = "Sound: On";
-    } else {
-        muteBtn.innerHTML = "Sound: Off";
-    }
+// ---------- Input ----------
+document.addEventListener("keydown", (e) => {
+    const k = e.key.toLowerCase();
+    if (k === "arrowleft" || k === "a") { keys.left = true; e.preventDefault(); }
+    if (k === "arrowright" || k === "d") { keys.right = true; e.preventDefault(); }
+    if (e.key === "Escape") togglePause();
 });
 
+document.addEventListener("keyup", (e) => {
+    const k = e.key.toLowerCase();
+    if (k === "arrowleft" || k === "a") keys.left = false;
+    if (k === "arrowright" || k === "d") keys.right = false;
+});
+
+// If the tab loses focus, release keys so the player doesn't drift
+window.addEventListener("blur", () => { keys.left = keys.right = false; });
+
+// Drag finger to move the player (touch-action: none in CSS stops page scroll)
+let lastTouchX = null;
+gameArea.addEventListener("touchstart", (e) => { lastTouchX = e.touches[0].clientX; }, { passive: true });
+gameArea.addEventListener("touchmove", (e) => {
+    if (state !== "running" || lastTouchX === null) return;
+    const x = e.touches[0].clientX;
+    movePlayer(x - lastTouchX);
+    lastTouchX = x;
+}, { passive: true });
+gameArea.addEventListener("touchend", () => { lastTouchX = null; });
+
+window.addEventListener("resize", () => movePlayer(0));
+
+startBtn.addEventListener("click", startGame);
+pauseBtn.addEventListener("click", togglePause);
+
+// "Play Again" starts a new round directly
+restartBtn.addEventListener("click", () => {
+    state = "idle";
+    startGame();
+});
+
+// Small screens: Help & Scores slide-over (pauses the game while open)
+$("infoBtn").addEventListener("click", () => {
+    if (state === "running") togglePause();
+    document.body.classList.add("show-info");
+});
+$("closeInfoBtn").addEventListener("click", () => document.body.classList.remove("show-info"));
+
+muteBtn.addEventListener("click", () => {
+    soundOn = !soundOn;
+    muteBtn.textContent = soundOn ? "Sound: On" : "Sound: Off";
+});
+
+// ---------- Init ----------
 updateLeaderboard();
+resetValues();
+requestAnimationFrame((t) => { lastFrame = t; requestAnimationFrame(loop); });
 
 for (let i = 0; i < 30; i++) {
-    let star = document.createElement("div");
-
-    star.classList.add("star");
+    const star = document.createElement("div");
+    star.className = "star";
     star.style.left = Math.random() * 100 + "%";
     star.style.top = Math.random() * 100 + "%";
     star.style.animationDelay = Math.random() * 3 + "s";
-
     particles.appendChild(star);
 }
